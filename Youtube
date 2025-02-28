@@ -1,0 +1,99 @@
+import com.google.api.client.auth.oauth2.Credential;
+import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
+import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
+import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
+import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
+import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
+import com.google.api.client.http.HttpTransport;
+import com.google.api.client.json.JsonFactory;
+import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.util.store.FileDataStoreFactory;
+import com.google.api.services.youtube.YouTube;
+import com.google.api.services.youtube.model.LiveBroadcast;
+import com.google.api.services.youtube.model.LiveBroadcastSnippet;
+import com.google.api.services.youtube.model.LiveBroadcastStatus;
+import com.google.api.services.youtube.model.LiveStream;
+import com.google.api.services.youtube.model.LiveStreamSnippet;
+import com.google.api.services.youtube.model.CdnSettings;
+
+import java.io.File;
+import java.io.InputStreamReader;
+import java.util.Arrays;
+import java.util.List;
+
+public class YouTubeLiveStream {
+    private static final String CLIENT_SECRET_FILE = "client_secret.json";  // Download this from Google Cloud
+    private static final String APPLICATION_NAME = "YouTube Live Stream";
+    private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
+    private static final List<String> SCOPES = Arrays.asList("https://www.googleapis.com/auth/youtube.force-ssl");
+
+    private static Credential authorize(HttpTransport httpTransport) throws Exception {
+        GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY,
+                new InputStreamReader(YouTubeLiveStream.class.getResourceAsStream("/" + CLIENT_SECRET_FILE)));
+        
+        GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
+                httpTransport, JSON_FACTORY, clientSecrets, SCOPES)
+                .setDataStoreFactory(new FileDataStoreFactory(new File("tokens")))
+                .setAccessType("offline")
+                .build();
+        
+        return new AuthorizationCodeInstalledApp(flow, new LocalServerReceiver()).authorize("user");
+    }
+
+    public static void main(String[] args) throws Exception {
+        HttpTransport httpTransport = GoogleNetHttpTransport.newTrustedTransport();
+        Credential credential = authorize(httpTransport);
+
+        YouTube youtube = new YouTube.Builder(httpTransport, JSON_FACTORY, credential)
+                .setApplicationName(APPLICATION_NAME)
+                .build();
+
+        // 1. Create a Live Broadcast
+        LiveBroadcastSnippet broadcastSnippet = new LiveBroadcastSnippet();
+        broadcastSnippet.setTitle("My First Live Stream!");
+        broadcastSnippet.setScheduledStartTime("2025-03-01T12:00:00Z"); // ISO format
+
+        LiveBroadcastStatus status = new LiveBroadcastStatus();
+        status.setPrivacyStatus("public"); // "unlisted" or "private" are also options
+
+        LiveBroadcast broadcast = new LiveBroadcast();
+        broadcast.setSnippet(broadcastSnippet);
+        broadcast.setStatus(status);
+        broadcast.setKind("youtube#liveBroadcast");
+
+        LiveBroadcast createdBroadcast = youtube.liveBroadcasts()
+                .insert("snippet,status", broadcast)
+                .execute();
+
+        System.out.println("Live Broadcast Created: " + createdBroadcast.getId());
+
+        // 2. Create a Live Stream
+        LiveStreamSnippet streamSnippet = new LiveStreamSnippet();
+        streamSnippet.setTitle("Stream Source");
+
+        CdnSettings cdnSettings = new CdnSettings();
+        cdnSettings.setResolution("1080p");
+        cdnSettings.setFrameRate("60fps");
+        cdnSettings.setIngestionType("rtmp"); // Standard YouTube protocol
+
+        LiveStream stream = new LiveStream();
+        stream.setSnippet(streamSnippet);
+        stream.setCdn(cdnSettings);
+        stream.setKind("youtube#liveStream");
+
+        LiveStream createdStream = youtube.liveStreams()
+                .insert("snippet,cdn", stream)
+                .execute();
+
+        System.out.println("Live Stream Created: " + createdStream.getId());
+
+        // 3. Bind the Stream to the Broadcast
+        youtube.liveBroadcasts().bind(createdBroadcast.getId(), "id,contentDetails")
+                .setStreamId(createdStream.getId())
+                .execute();
+
+        System.out.println("Live Broadcast linked to the Stream!");
+
+        // Now, use **OBS Studio** or **FFmpeg** to stream to YouTube!
+    }
+}
