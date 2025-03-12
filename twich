@@ -1,0 +1,106 @@
+import OBSWebSocket from 'obs-websocket-js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
+
+// Configuration
+const TWITCH_STREAM_KEY = 'live_your_key'; // Replace with your Twitch stream key
+const OBS_WS_ADDRESS = 'ws://localhost:4455'; // Default WebSocket address
+const OBS_WS_PASSWORD = 'your_password'; // Set this in OBS WebSocket settings
+
+// Initialize OBS WebSocket
+const obs = new OBSWebSocket();
+
+/**
+ * Connects to OBS WebSocket
+ */
+async function connectToOBS() {
+  try {
+    await obs.connect(OBS_WS_ADDRESS, OBS_WS_PASSWORD);
+    console.log('✓ Connected to OBS WebSocket');
+  } catch (error) {
+    console.error('✗ Failed to connect to OBS:', error.message);
+    process.exit(1);
+  }
+}
+
+/**
+ * Sets up streaming settings in OBS
+ */
+async function setupStream() {
+  try {
+    await obs.call('SetStreamServiceSettings', {
+      streamServiceType: 'rtmp_custom',
+      streamServiceSettings: {
+        server: 'rtmp://live.twitch.tv/app',
+        key: TWITCH_STREAM_KEY,
+        use_auth: false
+      }
+    });
+    console.log('✓ Twitch stream settings configured');
+  } catch (error) {
+    console.error('✗ Failed to configure stream settings:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Starts the stream
+ */
+async function startStream() {
+  try {
+    await obs.call('StartStream');
+    console.log('✓ Stream started on Twitch!');
+  } catch (error) {
+    console.error('✗ Failed to start stream:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Stops the stream
+ */
+async function stopStream() {
+  try {
+    await obs.call('StopStream');
+    console.log('✓ Stream stopped');
+  } catch (error) {
+    console.error('✗ Failed to stop stream:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Main execution function
+ */
+async function main() {
+  try {
+    // Check if OBS is running (Windows-specific)
+    console.log('Checking if OBS is running...');
+    await execPromise('tasklist | findstr "obs64.exe" || exit 1');
+    
+    // Connect and start streaming
+    await connectToOBS();
+    await setupStream();
+    await startStream();
+
+    // Example: Stop stream after 1 hour
+    setTimeout(async () => {
+      await stopStream();
+    }, 60 * 60 * 1000);
+
+  } catch (error) {
+    console.error('Error:', error.message);
+    process.exit(1);
+  }
+}
+
+// Handle process interrupts
+process.on('SIGINT', async () => {
+  await stopStream();
+  process.exit(0);
+});
+
+// Run the script
+main();
